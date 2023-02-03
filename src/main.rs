@@ -8,9 +8,8 @@ use eframe::egui;
 
 mod task;
 use task::Task;
-// TODO: Task Groups
 // TODO: Tags
-// TODO: Serialization
+// TODO: Task Groups
 // TODO: Styling
 
 struct TaskManager {
