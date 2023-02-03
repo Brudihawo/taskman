@@ -10,5 +10,6 @@ A simple time tracking TODO manager written in rust using [egui](https://github.
 - [ ] Task Groups and Tags
 - [ ] Graphing time taken for tasks
 - [ ] Friendly output as json for custom visualizations
-- [ ] Edit Tasks
+- [x] Edit Tasks
 - [ ] Better Styling
+- [ ] Handle Time Display correctly
