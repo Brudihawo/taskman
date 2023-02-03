@@ -21,6 +21,8 @@ struct TaskManager {
 impl TaskManager {
     const APPNAME: &str = "taskman";
     const TASK_LIST: &str = "task_list";
+    const CLR_PUSHED: egui::Color32 = egui::Color32::DARK_GREEN;
+    const CLR_NORMAL: egui::Color32 = egui::Color32::DARK_GRAY;
 }
 
 impl Default for TaskManager {
@@ -47,6 +49,10 @@ fn configure_text_styles(ctx: &egui::Context) {
         (
             TextStyle::Name("Heading3".into()),
             FontId::new(19.0, Proportional),
+        ),
+        (
+            TextStyle::Name("Smaller".into()),
+            FontId::new(14.0, Proportional),
         ),
         (TextStyle::Body, FontId::new(16.0, Proportional)),
         (TextStyle::Monospace, FontId::new(12.0, Monospace)),
@@ -84,7 +90,7 @@ impl TaskManager {
         self.tasks.insert(task.get_uuid(), task);
     }
 
-    fn new_window(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn new_task_dialog(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut defer_add = false;
         if let Some(ref mut task) = self.tmp_task {
             egui::Window::new("Creating New Task")
@@ -123,16 +129,49 @@ impl TaskManager {
     }
 }
 
+fn task_list_entry(task: &mut Task, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            if ui
+                .add(egui::Button::new("start").fill(if task.is_started() {
+                    TaskManager::CLR_PUSHED
+                } else {
+                    TaskManager::CLR_NORMAL
+                }))
+                .clicked()
+            {
+                task.start();
+            }
+
+            if ui
+                .add(egui::Button::new("done").fill(if task.is_finished() {
+                    TaskManager::CLR_PUSHED
+                } else {
+                    TaskManager::CLR_NORMAL
+                }))
+                .clicked()
+            {
+                task.finish();
+            }
+        });
+
+        ui.separator();
+        task.display(ui);
+        // TODO: Task edit in side panel
+    });
+}
+
 impl eframe::App for TaskManager {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.show_new_dialog {
             match self.tmp_task {
                 Some(_) => {
-                    self.new_window(ctx, frame);
+                    self.new_task_dialog(ctx, frame);
                 }
                 None => self.tmp_task = Some(Task::default()),
             }
         }
+
         egui::SidePanel::left("Panel").show(ctx, |ui| {
             if ui.button("New Task").clicked() {
                 self.show_new_dialog = true;
@@ -141,9 +180,12 @@ impl eframe::App for TaskManager {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.heading("All Tasks:");
-                for (_, task) in self.tasks.iter() {
-                    task.display(ui);
+                ui.heading("All Tasks");
+                let mut tasks: Vec<&mut Task> = self.tasks.values_mut().collect();
+                tasks.sort_by_key(|x| x.get_creation_time());
+                for task in tasks.iter_mut() {
+                    task_list_entry(task, ui);
+                    ui.end_row();
                     ui.separator();
                 }
             });
@@ -159,7 +201,6 @@ impl eframe::App for TaskManager {
         storage.flush();
     }
 }
-
 
 fn main() {
     let options = eframe::NativeOptions {

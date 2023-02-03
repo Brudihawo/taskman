@@ -11,27 +11,87 @@ use eframe::egui;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     id: Uuid,
+    creation_time: DateTime<Utc>,
     pub name: String,
     pub description: String,
-    pub started: Option<DateTime<Utc>>,
-    pub finished: Option<DateTime<Utc>>,
+    started: Option<DateTime<Utc>>,
+    finished: Option<DateTime<Utc>>,
     pub subtasks: Option<Vec<Uuid>>,
+}
+
+pub enum TaskStatus {
+    NotYet,
+    Started,
+    Finished,
 }
 
 impl Task {
     pub fn get_uuid(&self) -> Uuid {
         self.id
     }
+    pub fn get_creation_time(&self) -> DateTime<Utc> {
+        self.creation_time
+    }
+
+    pub fn is_started(&self) -> bool {
+        self.started.is_some()
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.finished.is_some()
+    }
+
+    pub fn start(&mut self) {
+        if self.is_started() || self.is_finished() {
+            return;
+        }
+
+        self.started = Some(Utc::now());
+    }
+
+    pub fn finish(&mut self) {
+        if !self.is_started() || self.is_finished() {
+            return;
+        }
+
+        self.finished = Some(Utc::now());
+    }
+
+    pub fn get_duration(&self) -> Option<chrono::Duration> {
+        if self.is_finished() {
+            Some(self.finished.unwrap() - self.started.unwrap())
+        } else {
+            None
+        }
+    }
+
+    pub fn status(&self) -> TaskStatus {
+        match (self.is_started(), self.is_finished()) {
+            (true, true) => TaskStatus::Finished,
+            (true, false) => TaskStatus::Started,
+            (false, true) => unreachable!(),
+            (false, false) => TaskStatus::NotYet,
+        }
+    }
 
     pub fn display(&self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.vertical(|ui| {
             ui.label(
-                egui::RichText::new(&self.name)
+                egui::RichText::new(format!(
+                    "{}",
+                    &self.get_creation_time().format("%d.%m.%Y %H:%M:%S")
+                ))
+                .text_style(egui::TextStyle::Name("Smaller".into())),
+            );
+
+            ui.label(
+                egui::RichText::new(format!("{}", &self.name))
                     .text_style(egui::TextStyle::Name("Heading2".into()))
                     .strong(),
             );
+
+            ui.label(&self.description);
         });
-        ui.label(&self.description);
     }
 }
 
@@ -39,6 +99,7 @@ impl Default for Task {
     fn default() -> Self {
         Self {
             id: Uuid::new_v4(),
+            creation_time: Utc::now(),
             name: "New Task".to_string(),
             description: "".to_string(),
             started: None,
@@ -54,12 +115,12 @@ impl Serialize for Task {
         S: Serializer,
     {
         let mut s = serializer.serialize_struct("Task", 6)?;
-        s.serialize_field("name", &self.name)?;
         s.serialize_field("id", &self.id.as_u128())?;
+        s.serialize_field("creationtime", &self.creation_time)?;
+        s.serialize_field("name", &self.name)?;
         s.serialize_field("description", &self.description)?;
         s.serialize_field("started", &self.started)?;
         s.serialize_field("finished", &self.finished)?;
-
         s.serialize_field(
             "subtasks",
             &self
@@ -80,6 +141,7 @@ impl<'de> Deserialize<'de> for Task {
         #[serde(field_identifier, rename_all = "lowercase")]
         enum Field {
             Id,
+            CreationTime,
             Name,
             Description,
             Started,
@@ -102,21 +164,24 @@ impl<'de> Deserialize<'de> for Task {
                 let u_id: u128 = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                let name: String = seq
+                let creation_time: DateTime<Utc> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                let description: String = seq
+                let name: String = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(2, &self))?;
-                let started: Option<DateTime<Utc>> = seq
+                let description: String = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(3, &self))?;
-                let finished: Option<DateTime<Utc>> = seq
+                let started: Option<DateTime<Utc>> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(4, &self))?;
-                let u_subtasks: Option<Vec<u128>> = seq
+                let finished: Option<DateTime<Utc>> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(5, &self))?;
+                let u_subtasks: Option<Vec<u128>> = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(6, &self))?;
 
                 let id = Uuid::from_u128(u_id);
                 let subtasks = u_subtasks
@@ -124,6 +189,7 @@ impl<'de> Deserialize<'de> for Task {
 
                 Ok(Self::Value {
                     id,
+                    creation_time,
                     name,
                     description,
                     started,
@@ -137,6 +203,7 @@ impl<'de> Deserialize<'de> for Task {
                 V: MapAccess<'de>,
             {
                 let mut id = None;
+                let mut creation_time = None;
                 let mut name = None;
                 let mut description = None;
                 let mut started = None;
@@ -150,6 +217,12 @@ impl<'de> Deserialize<'de> for Task {
                             }
                             id = Some(map.next_value::<u128>()?);
                         }
+                        Field::CreationTime => {
+                            if creation_time.is_some() {
+                                return Err(de::Error::duplicate_field("creationtime"));
+                            }
+                            creation_time = Some(map.next_value::<DateTime<Utc>>()?);
+                        }
                         Field::Name => {
                             if name.is_some() {
                                 return Err(de::Error::duplicate_field("name"));
@@ -162,21 +235,18 @@ impl<'de> Deserialize<'de> for Task {
                             }
                             description = Some(map.next_value()?);
                         }
-
                         Field::Started => {
                             if started.is_some() {
                                 return Err(de::Error::duplicate_field("started"));
                             }
                             started = Some(map.next_value()?);
                         }
-
                         Field::Finished => {
                             if finished.is_some() {
                                 return Err(de::Error::duplicate_field("finished"));
                             }
                             finished = Some(map.next_value()?);
                         }
-
                         Field::Subtasks => {
                             if subtasks.is_some() {
                                 return Err(de::Error::duplicate_field("subtasks"));
@@ -185,10 +255,13 @@ impl<'de> Deserialize<'de> for Task {
                         }
                     }
                 }
+
                 Ok(Task {
                     id: id
                         .map(|x| Uuid::from_u128(x))
                         .ok_or_else(|| de::Error::missing_field("id"))?,
+                    creation_time: creation_time
+                        .ok_or_else(|| de::Error::missing_field("creationtime"))?,
                     name: name.ok_or_else(|| de::Error::missing_field("name"))?,
                     description: description
                         .ok_or_else(|| de::Error::missing_field("description"))?,
@@ -202,6 +275,7 @@ impl<'de> Deserialize<'de> for Task {
                 })
             }
         }
+
         const FIELDS: &'static [&'static str] = &[
             "id",
             "name",
