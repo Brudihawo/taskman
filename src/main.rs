@@ -2,18 +2,12 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use eframe::egui::{self, Label};
+use std::error::Error;
 
-#[derive(Debug)]
-struct Task {
-    id: Uuid,
-    name: String,
-    description: String,
-    started: Option<DateTime<Utc>>,
-    finished: Option<DateTime<Utc>>,
-    subtasks: Option<Vec<Uuid>>,
-}
+use eframe::egui;
 
+mod task;
+use task::Task;
 // TODO: Task Groups
 // TODO: Tags
 // TODO: Serialization
@@ -25,30 +19,9 @@ struct TaskManager {
     tmp_task: Option<Task>,
 }
 
-impl Default for Task {
-    fn default() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            name: "New Task".to_string(),
-            description: "".to_string(),
-            started: None,
-            finished: None,
-            subtasks: None,
-        }
-    }
-}
-
-impl Task {
-    fn display(&self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(&self.name)
-                    .text_style(egui::TextStyle::Name("Heading2".into()))
-                    .strong(),
-            );
-        });
-        ui.label(&self.description);
-    }
+impl TaskManager {
+    const APPNAME: &str = "taskman";
+    const TASK_LIST: &str = "task_list";
 }
 
 impl Default for TaskManager {
@@ -88,11 +61,28 @@ fn configure_text_styles(ctx: &egui::Context) {
 impl TaskManager {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         configure_text_styles(&&cc.egui_ctx);
-        Self::default()
+
+        let mut tm = Self::default();
+        if let Some(storage) = cc.storage {
+            println!("Found Storage");
+            if let Some(res) = storage.get_string(&TaskManager::TASK_LIST) {
+                println!("Found task list entry");
+                if let Ok(mut conv) = serde_json::from_str::<Vec<Task>>(&res) {
+                    for task in conv.drain(..) {
+                        tm.tasks.insert(task.get_uuid(), task);
+                    }
+                    println!("got task list of size {}", tm.tasks.len());
+                    // TODO: Verify task link integrity
+                }
+            }
+        } else {
+            panic!("No storage found")
+        }
+        tm
     }
 
     fn add_task(&mut self, task: Task) {
-        self.tasks.insert(task.id, task);
+        self.tasks.insert(task.get_uuid(), task);
     }
 
     fn new_window(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -160,7 +150,17 @@ impl eframe::App for TaskManager {
             });
         });
     }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(
+            "task_list",
+            serde_json::to_string(&self.tasks.iter().map(|(_, x)| x).collect::<Vec<&Task>>())
+                .unwrap(),
+        );
+        storage.flush();
+    }
 }
+
 
 fn main() {
     let options = eframe::NativeOptions {
@@ -168,7 +168,7 @@ fn main() {
         ..Default::default()
     };
     eframe::run_native(
-        "Test",
+        TaskManager::APPNAME,
         options,
         Box::new(|cc| Box::new(TaskManager::new(cc))),
     )
