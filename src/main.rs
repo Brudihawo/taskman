@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use eframe::egui;
+use eframe::egui::{self, Label};
 
 #[derive(Debug)]
 struct Task {
@@ -38,6 +38,19 @@ impl Default for Task {
     }
 }
 
+impl Task {
+    fn display(&self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(&self.name)
+                    .text_style(egui::TextStyle::Name("Heading2".into()))
+                    .strong(),
+            );
+        });
+        ui.label(&self.description);
+    }
+}
+
 impl Default for TaskManager {
     fn default() -> Self {
         Self {
@@ -48,7 +61,36 @@ impl Default for TaskManager {
     }
 }
 
+fn configure_text_styles(ctx: &egui::Context) {
+    use egui::FontFamily::{Monospace, Proportional};
+    use egui::{FontId, TextStyle};
+
+    let mut style = (*ctx.style()).clone();
+    style.text_styles = [
+        (TextStyle::Heading, FontId::new(32.0, Proportional)),
+        (
+            TextStyle::Name("Heading2".into()),
+            FontId::new(22.0, Proportional),
+        ),
+        (
+            TextStyle::Name("Heading3".into()),
+            FontId::new(19.0, Proportional),
+        ),
+        (TextStyle::Body, FontId::new(16.0, Proportional)),
+        (TextStyle::Monospace, FontId::new(12.0, Monospace)),
+        (TextStyle::Button, FontId::new(12.0, Proportional)),
+        (TextStyle::Small, FontId::new(8.0, Proportional)),
+    ]
+    .into();
+    ctx.set_style(style);
+}
+
 impl TaskManager {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        configure_text_styles(&&cc.egui_ctx);
+        Self::default()
+    }
+
     fn add_task(&mut self, task: Task) {
         self.tasks.insert(task.id, task);
     }
@@ -102,22 +144,20 @@ impl eframe::App for TaskManager {
                 None => self.tmp_task = Some(Task::default()),
             }
         }
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("TaskMan");
-
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.heading("All Tasks:");
-                for (_, task) in self.tasks.iter() {
-                    ui.horizontal(|ui| {
-                        ui.label(&task.name);
-                    });
-                }
-            });
-
+        egui::SidePanel::left("Panel").show(ctx, |ui| {
             if ui.button("New Task").clicked() {
                 self.show_new_dialog = true;
             }
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.heading("All Tasks:");
+                for (_, task) in self.tasks.iter() {
+                    task.display(ui);
+                    ui.separator();
+                }
+            });
         });
     }
 }
@@ -130,6 +170,6 @@ fn main() {
     eframe::run_native(
         "Test",
         options,
-        Box::new(|_cc| Box::new(TaskManager::default())),
+        Box::new(|cc| Box::new(TaskManager::new(cc))),
     )
 }
