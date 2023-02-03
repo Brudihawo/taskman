@@ -5,6 +5,7 @@ use uuid::Uuid;
 use std::error::Error;
 
 use eframe::egui;
+use eframe::egui::Color32;
 
 mod task;
 use task::Task;
@@ -16,6 +17,7 @@ struct TaskManager {
     tasks: HashMap<Uuid, Task>,
     show_new_dialog: bool,
     tmp_task: Option<Task>,
+    edit: Option<Uuid>,
 }
 
 impl TaskManager {
@@ -31,6 +33,7 @@ impl Default for TaskManager {
             tasks: HashMap::new(),
             show_new_dialog: false,
             tmp_task: None,
+            edit: None,
         }
     }
 }
@@ -105,7 +108,7 @@ impl TaskManager {
 
                     ui.horizontal(|ui| {
                         let desc_label = ui.label("Description");
-                        ui.text_edit_singleline(&mut task.description)
+                        ui.text_edit_multiline(&mut task.description)
                             .labelled_by(desc_label.id);
                     });
 
@@ -125,6 +128,42 @@ impl TaskManager {
             self.add_task(task);
 
             println!("{:?}", self.tasks);
+        }
+    }
+
+    fn edit_panel(&mut self, ctx: &egui::Context) {
+        if let Some(uuid) = &self.edit {
+            let edit_task = self.tasks.get_mut(&uuid).unwrap();
+
+            egui::SidePanel::right("Edit Task")
+                .resizable(true)
+                .show_animated(ctx, true, |ui| {
+                    egui::Grid::new("Grid").striped(false).show(ui, |ui| {
+                        if ui
+                            .add(egui::Button::new("x").fill(Color32::DARK_RED))
+                            .clicked()
+                        {
+                            self.edit = None;
+                        }
+                        ui.add_sized([ui.available_width(), 0.0], egui::Label::new("Task Name"));
+                    });
+
+                    ui.add_sized(
+                        [ui.available_width(), 0.0],
+                        egui::TextEdit::singleline(&mut edit_task.name)
+                            .font(egui::TextStyle::Name("Heading2".into())),
+                    );
+                    ui.separator();
+
+                    let description_label = ui.label("Description");
+                    ui.add_sized(
+                        [ui.available_width(), 0.0],
+                        egui::TextEdit::multiline(&mut edit_task.description)
+                            .font(egui::TextStyle::Body),
+                    )
+                    .labelled_by(description_label.id);
+                    // TODO: reset start and finish times
+                });
         }
     }
 }
@@ -155,9 +194,9 @@ fn task_list_entry(task: &mut Task, ui: &mut egui::Ui) {
             }
         });
 
-        ui.separator();
+        let sep = egui::Separator::default();
+        ui.add(sep);
         task.display(ui);
-        // TODO: Task edit in side panel
     });
 }
 
@@ -172,21 +211,26 @@ impl eframe::App for TaskManager {
             }
         }
 
-        egui::SidePanel::left("Panel").show(ctx, |ui| {
+        egui::SidePanel::left("Left Side").show(ctx, |ui| {
             if ui.button("New Task").clicked() {
                 self.show_new_dialog = true;
             }
         });
+
+        self.edit_panel(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("All Tasks");
                 let mut tasks: Vec<&mut Task> = self.tasks.values_mut().collect();
                 tasks.sort_by_key(|x| x.get_creation_time());
-                for task in tasks.iter_mut() {
+                for task in tasks.iter_mut().rev() {
                     task_list_entry(task, ui);
-                    ui.end_row();
+                    if ui.button("edit").clicked() {
+                        self.edit = Some(task.get_uuid());
+                    }
                     ui.separator();
+                    ui.end_row();
                 }
             });
         });
