@@ -4,6 +4,8 @@ use uuid::Uuid;
 use crate::pomodoro::{Pomodoro, PomodoroStatus};
 use crate::task::{Task, TaskStatus};
 
+use chrono::{DateTime, Utc};
+
 use egui::Color32;
 
 use eframe::{self, egui};
@@ -146,10 +148,10 @@ impl TaskManager {
                                 let before = selected;
 
                                 if ui
-                                    .add_sized([ui.available_width(), 0.0], egui::SelectableLabel::new(
-                                        selected,
-                                        &existing_task.name,
-                                    ))
+                                    .add_sized(
+                                        [ui.available_width(), 0.0],
+                                        egui::SelectableLabel::new(selected, &existing_task.name),
+                                    )
                                     .clicked()
                                 {
                                     selected = !selected;
@@ -197,6 +199,19 @@ impl TaskManager {
         let mut defer_delete = false;
 
         if let Some(uuid) = &self.edit {
+            let mut task_names: Vec<(Uuid, String, DateTime<Utc>)> = self
+                .tasks
+                .values()
+                .map(|x| (x.get_uuid(), x.name.clone(), x.get_creation_time()))
+                .collect();
+
+            task_names.sort_by_key(|(_id, _name, time)| *time);
+
+            let task_names = task_names
+                .drain(..)
+                .map(|(id, name, _)| (id, name))
+                .collect::<Vec<(Uuid, String)>>();
+
             let edit_task = self.tasks.get_mut(&uuid).unwrap();
             egui::SidePanel::right("Edit Task")
                 .resizable(true)
@@ -225,6 +240,39 @@ impl TaskManager {
                             .font(egui::TextStyle::Body),
                     )
                     .labelled_by(description_label.id);
+
+                    ui.separator();
+                    egui::ScrollArea::new([false, true]).show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            let heading = egui::RichText::new("Select subtasks")
+                                .text_style(egui::TextStyle::Name("Heading3".into()));
+                            ui.label(heading);
+                            for (eid, ename) in task_names.iter() {
+                                if *eid == edit_task.get_uuid() {
+                                    continue;
+                                }
+                                let mut selected = edit_task.has_subtask(*eid);
+                                let before = selected;
+
+                                if ui
+                                    .add_sized(
+                                        [ui.available_width(), 0.0],
+                                        egui::SelectableLabel::new(selected, ename.clone()),
+                                    )
+                                    .clicked()
+                                {
+                                    selected = !selected;
+                                };
+                                if before != selected {
+                                    if selected {
+                                        edit_task.add_subtask(*eid, ename.clone());
+                                    } else {
+                                        edit_task.remove_subtask(*eid);
+                                    }
+                                }
+                            }
+                        });
+                    });
 
                     if ui.button("Delete").clicked() {
                         defer_delete = true;
