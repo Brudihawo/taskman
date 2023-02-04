@@ -9,6 +9,7 @@ use eframe::egui::Color32;
 
 mod task;
 use task::Task;
+
 // TODO: Tags
 // TODO: Task Groups
 // TODO: Styling
@@ -185,9 +186,10 @@ impl TaskManager {
     }
 
     fn edit_panel(&mut self, ctx: &egui::Context) {
+        let mut defer_delete = false;
+
         if let Some(uuid) = &self.edit {
             let edit_task = self.tasks.get_mut(&uuid).unwrap();
-
             egui::SidePanel::right("Edit Task")
                 .resizable(true)
                 .show_animated(ctx, true, |ui| {
@@ -215,8 +217,17 @@ impl TaskManager {
                             .font(egui::TextStyle::Body),
                     )
                     .labelled_by(description_label.id);
+
+                    if ui.button("Delete").clicked() {
+                        defer_delete = true;
+                    }
+
                     // TODO: reset start and finish times
                 });
+        }
+        if defer_delete {
+            let to_del = self.edit.take().unwrap();
+            self.tasks.remove(&to_del);
         }
     }
 
