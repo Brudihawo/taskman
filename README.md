@@ -1,6 +1,10 @@
 # TaskMan
 A simple time tracking TODO manager written in rust using [egui](https://github.com/emilk/egui).
 
+- Double click to edit tasks
+- Add task via button
+- Pomodoro timer with system notifications
+
 **This is currently a work in progress**
 
 ## Features
