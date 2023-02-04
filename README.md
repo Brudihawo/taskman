@@ -22,6 +22,8 @@ A simple time tracking TODO manager written in rust using [egui](https://github.
 - [x] Subtask / Task editing logic
 - [ ] Task Groups and Tags
 - [ ] Graphing time taken for tasks
-- [ ] Friendly output as json for custom visualizations
+- [x] Exporting as json for custom visualizations
+- [x] Importing of task.json
+- [ ] Verifying of loaded data
 - [ ] Better Styling
 - [ ] Archiving Tasks - How do I want to handle this

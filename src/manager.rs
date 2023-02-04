@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use std::path::PathBuf;
+
 use crate::pomodoro::{Pomodoro, PomodoroStatus};
 use crate::task::{Task, TaskStatus};
 
@@ -10,21 +12,27 @@ use egui::Color32;
 
 use eframe::{self, egui};
 
-pub struct TaskManager {
-    tasks: HashMap<Uuid, Task>,
-    show_new_dialog: bool,
-    tmp_task: Option<Task>,
-    edit: Option<Uuid>,
-    pomodoro: Option<Pomodoro>,
-    notified: NotifyStatus,
-    pomo_work: u32,
-    pomo_break: u32,
-}
-
 enum NotifyStatus {
     SentBreak,
     SentWork,
     Nothing,
+}
+
+pub struct TaskManager {
+    tasks: HashMap<Uuid, Task>,
+
+    show_new_dialog: bool,
+    tmp_task: Option<Task>,
+
+    err_msg: Option<String>,
+
+    edit: Option<Uuid>,
+
+    notified: NotifyStatus,
+    pomodoro: Option<Pomodoro>,
+    pomo_work: u32,
+    pomo_break: u32,
+    squash_import: bool,
 }
 
 impl TaskManager {
@@ -52,6 +60,8 @@ impl Default for TaskManager {
             pomo_work: 25,
             pomo_break: 5,
             notified: NotifyStatus::Nothing,
+            err_msg: None,
+            squash_import: false,
         }
     }
 }
@@ -345,6 +355,164 @@ impl TaskManager {
             ui.separator();
         }
     }
+
+    fn pomodoro_display(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.heading("Pomodoro");
+        if ui.button("Start / Stop").clicked() {
+            match self.pomodoro {
+                Some(_) => self.pomodoro = None,
+                None => {
+                    self.pomodoro = Some(Pomodoro::new(
+                        chrono::Duration::minutes(self.pomo_work.into()),
+                        chrono::Duration::minutes(self.pomo_break.into()),
+                    ))
+                }
+            }
+        }
+
+        if let Some(pomo) = &self.pomodoro {
+            // Request Repaint so that progress bar updates regularly
+            ctx.request_repaint();
+
+            // Handle Notification
+            match pomo.status() {
+                PomodoroStatus::Work(_) => match self.notified {
+                    NotifyStatus::SentBreak | NotifyStatus::Nothing => {
+                        notify_rust::Notification::new()
+                            .summary("Start Working")
+                            .body(&format!(
+                                "Working interval time: {}",
+                                display_duration_min_s(pomo.work_time)
+                            ))
+                            .show()
+                            .unwrap();
+                        self.notified = NotifyStatus::SentWork;
+                    }
+                    _ => (),
+                },
+                PomodoroStatus::Break(_) => match self.notified {
+                    NotifyStatus::SentWork | NotifyStatus::Nothing => {
+                        notify_rust::Notification::new()
+                            .summary("Take a Break")
+                            .body(&format!(
+                                "Break interval time: {}",
+                                display_duration_min_s(pomo.break_time)
+                            ))
+                            .show()
+                            .unwrap();
+                        self.notified = NotifyStatus::SentBreak;
+                    }
+                    _ => (),
+                },
+                PomodoroStatus::Done => match self.notified {
+                    NotifyStatus::SentBreak | NotifyStatus::Nothing => {
+                        notify_rust::Notification::new()
+                            .summary("Pomodoro is Done")
+                            .show()
+                            .unwrap();
+                        self.notified = NotifyStatus::Nothing;
+                    }
+                    _ => (),
+                },
+            }
+
+            let pbar = match pomo.status() {
+                PomodoroStatus::Work(work_time_elapsed) => egui::ProgressBar::new(
+                    work_time_elapsed.num_seconds() as f32 / pomo.work_time.num_seconds() as f32,
+                )
+                .text(format!(
+                    "Work Time: {}",
+                    display_duration_min_s(work_time_elapsed)
+                )),
+                PomodoroStatus::Break(break_time_elapsed) => egui::ProgressBar::new(
+                    break_time_elapsed.num_seconds() as f32 / pomo.break_time.num_seconds() as f32,
+                )
+                .text(format!(
+                    "Break Time: {}",
+                    display_duration_min_s(break_time_elapsed)
+                )),
+                PomodoroStatus::Done => egui::ProgressBar::new(1.0).text("Done"),
+            };
+            ui.add(pbar);
+        } else {
+            ui.add(egui::Slider::new(&mut self.pomo_work, 1..=60))
+                .labelled_by(ui.label("Work Interval").id);
+            ui.add(egui::Slider::new(&mut self.pomo_break, 1..=60))
+                .labelled_by(ui.label("Break Interval").id);
+        }
+    }
+
+    fn err_win(&mut self, ctx: &egui::Context) {
+        let mut close = false;
+        if let Some(msg) = &self.err_msg {
+            egui::Window::new("Error").show(ctx, |ui| {
+                ui.label(msg);
+                if ui.button("Ok").clicked() {
+                    close = true;
+                }
+            });
+        }
+        if close {
+            self.err_msg = None;
+        }
+    }
+
+    fn import(&mut self) {
+        let maybe_path = rfd::FileDialog::new()
+            .set_directory(home::home_dir().unwrap_or(".".into()))
+            .add_filter("json", &["json"])
+            .pick_file();
+
+        if let Some(path) = maybe_path {
+            match std::fs::File::open(&path) {
+                Ok(infile) => {
+                    println!("Importing from {}.", path.to_str().unwrap());
+                    match serde_json::from_reader::<_, Vec<Task>>(infile) {
+                        Ok(mut tasks) => {
+                            for task in &mut tasks.drain(..) {
+                                if self.squash_import {
+                                    self.add_task(task);
+                                } else {
+                                    if !self.tasks.contains_key(&task.get_uuid()) {
+                                        self.add_task(task);
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            self.err_msg = Some(format!(
+                                "Error during parsing of file '{}': {}",
+                                path.to_str().unwrap(),
+                                err.to_string()
+                            ))
+                        }
+                    }
+                }
+                Err(err) => self.err_msg = Some(err.to_string()),
+            }
+        }
+    }
+
+    fn export(&mut self) {
+        let maybe_path = rfd::FileDialog::new()
+            .set_directory(home::home_dir().unwrap_or(".".into()))
+            .add_filter("json", &["json"])
+            .save_file();
+
+        if let Some(path) = maybe_path {
+            match std::fs::File::create(&path) {
+                Ok(outfile) => {
+                    println!("Saving to {}.", path.to_str().unwrap());
+                    serde_json::to_writer(
+                        outfile,
+                        &self.tasks.iter().map(|(_, x)| x).collect::<Vec<&Task>>(),
+                    )
+                    .unwrap();
+                }
+                Err(err) => self.err_msg = Some(err.to_string()),
+            }
+        }
+    }
 }
 
 fn display_duration_min_s(d: chrono::Duration) -> String {
@@ -368,95 +536,30 @@ impl eframe::App for TaskManager {
 
         egui::SidePanel::left("Left Side").show(ctx, |ui| {
             ui.heading("Tasks");
-            if ui.button("New Task").clicked() {
-                self.show_new_dialog = true;
-            }
+            ui.columns(2, |cols| {
+                if cols[0].button("New Task").clicked() {
+                    self.show_new_dialog = true;
+                }
+                if cols[1].button("Export").clicked() {
+                    self.export();
+                }
+            });
+
             ui.separator();
-            ui.heading("Pomodoro");
-            if ui.button("Start / Stop").clicked() {
-                match self.pomodoro {
-                    Some(_) => self.pomodoro = None,
-                    None => {
-                        self.pomodoro = Some(Pomodoro::new(
-                            chrono::Duration::minutes(self.pomo_work.into()),
-                            chrono::Duration::minutes(self.pomo_break.into()),
-                        ))
-                    }
+            ui.columns(2, |cols| {
+                if cols[0].button("Import").clicked() {
+                    self.import();
                 }
-            }
-
-            if let Some(pomo) = &self.pomodoro {
-                // Request Repaint so that progress bar updates regularly
-                ctx.request_repaint();
-
-                // Handle Notification
-                match pomo.status() {
-                    PomodoroStatus::Work(_) => match self.notified {
-                        NotifyStatus::SentBreak | NotifyStatus::Nothing => {
-                            notify_rust::Notification::new()
-                                .summary("Start Working")
-                                .body(&format!(
-                                    "Working interval time: {}",
-                                    display_duration_min_s(pomo.work_time)
-                                ))
-                                .show()
-                                .unwrap();
-                            self.notified = NotifyStatus::SentWork;
-                        }
-                        _ => (),
-                    },
-                    PomodoroStatus::Break(_) => match self.notified {
-                        NotifyStatus::SentWork | NotifyStatus::Nothing => {
-                            notify_rust::Notification::new()
-                                .summary("Take a Break")
-                                .body(&format!(
-                                    "Break interval time: {}",
-                                    display_duration_min_s(pomo.break_time)
-                                ))
-                                .show()
-                                .unwrap();
-                            self.notified = NotifyStatus::SentBreak;
-                        }
-                        _ => (),
-                    },
-                    PomodoroStatus::Done => match self.notified {
-                        NotifyStatus::SentBreak | NotifyStatus::Nothing => {
-                            notify_rust::Notification::new()
-                                .summary("Pomodoro is Done")
-                                .show()
-                                .unwrap();
-                            self.notified = NotifyStatus::Nothing;
-                        }
-                        _ => (),
-                    },
+                if cols[1]
+                    .selectable_label(self.squash_import, "Squash Existing on Import")
+                    .clicked()
+                {
+                    self.squash_import = !self.squash_import;
                 }
+            });
 
-                let pbar = match pomo.status() {
-                    PomodoroStatus::Work(work_time_elapsed) => egui::ProgressBar::new(
-                        work_time_elapsed.num_seconds() as f32
-                            / pomo.work_time.num_seconds() as f32,
-                    )
-                    .text(format!(
-                        "Work Time: {}",
-                        display_duration_min_s(work_time_elapsed)
-                    )),
-                    PomodoroStatus::Break(break_time_elapsed) => egui::ProgressBar::new(
-                        break_time_elapsed.num_seconds() as f32
-                            / pomo.break_time.num_seconds() as f32,
-                    )
-                    .text(format!(
-                        "Break Time: {}",
-                        display_duration_min_s(break_time_elapsed)
-                    )),
-                    PomodoroStatus::Done => egui::ProgressBar::new(1.0).text("Done"),
-                };
-                ui.add(pbar);
-            } else {
-                ui.add(egui::Slider::new(&mut self.pomo_work, 1..=60))
-                    .labelled_by(ui.label("Work Interval").id);
-                ui.add(egui::Slider::new(&mut self.pomo_break, 1..=60))
-                    .labelled_by(ui.label("Break Interval").id);
-            }
+            ui.separator();
+            self.pomodoro_display(ctx, ui);
         });
 
         self.edit_pane(ctx);
@@ -467,6 +570,8 @@ impl eframe::App for TaskManager {
                 self.task_list(ui);
             });
         });
+
+        self.err_win(ctx);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
