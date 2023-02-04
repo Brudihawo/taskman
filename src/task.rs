@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use uuid::Uuid;
 
 use serde::de;
@@ -7,6 +7,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::Deserialize;
 
 use eframe::egui;
+use egui::Color32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
@@ -26,6 +27,8 @@ pub enum TaskStatus {
 }
 
 impl Task {
+    const DATEFMT: &str = "%d.%m.%Y %H:%M:%S";
+
     pub fn get_uuid(&self) -> Uuid {
         self.id
     }
@@ -77,10 +80,30 @@ impl Task {
     pub fn display(&self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.label(
-                egui::RichText::new(format!(
-                    "{}",
-                    &self.get_creation_time().format("%d.%m.%Y %H:%M:%S")
-                ))
+                if let Some(dur) = self.get_duration() {
+                    egui::RichText::new(format!(
+                        "{} | {} -> {} (Took {:02}:{:02}:{:02})",
+                        &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
+                        &DateTime::<Local>::from(self.started.unwrap()).format(Task::DATEFMT),
+                        &DateTime::<Local>::from(self.finished.unwrap()).format(Task::DATEFMT),
+                        dur.num_hours(),
+                        dur.num_minutes() - dur.num_hours() * 60,
+                        dur.num_seconds() - dur.num_minutes() * 60 - dur.num_hours() * 3600
+                    ))
+                    .color(Color32::DARK_GREEN)
+                } else if let Some(begin) = self.started {
+                    egui::RichText::new(format!(
+                        "{} | {} -> ...",
+                        &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
+                        &DateTime::<Local>::from(begin).format(Task::DATEFMT),
+                    ))
+                    .color(Color32::from_rgb_additive(0x89, 0x38, 0x01))
+                } else {
+                    egui::RichText::new(format!(
+                        "{}",
+                        &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
+                    ))
+                }
                 .text_style(egui::TextStyle::Name("Smaller".into())),
             );
 

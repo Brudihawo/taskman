@@ -221,7 +221,6 @@ impl TaskManager {
                     if ui.button("Delete").clicked() {
                         defer_delete = true;
                     }
-
                     // TODO: reset start and finish times
                 });
         }

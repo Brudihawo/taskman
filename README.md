@@ -14,4 +14,4 @@ A simple time tracking TODO manager written in rust using [egui](https://github.
 - [x] Delete Tasks
 - [ ] Remove edit button; make edit window open on double click
 - [ ] Better Styling
-- [ ] Handle Time Display correctly
+- [x] Handle Time Display correctly
