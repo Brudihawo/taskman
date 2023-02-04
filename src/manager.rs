@@ -31,9 +31,12 @@ impl TaskManager {
     const CLR_PUSHED: egui::Color32 = egui::Color32::DARK_GREEN;
     const CLR_NORMAL: egui::Color32 = egui::Color32::DARK_GRAY;
 
-    const COLOR_DONE: egui::Color32 = egui::Color32::DARK_GREEN;
-    const COLOR_INPROGRESS: egui::Color32 = egui::Color32::from_rgb_additive(0x89, 0x38, 0x01);
-    const COLOR_NOTSTARTED: egui::Color32 = egui::Color32::DARK_GRAY;
+    const CLR_CONFIRM: egui::Color32 = egui::Color32::DARK_GREEN;
+    const CLR_ABORT: egui::Color32 = egui::Color32::DARK_RED;
+
+    const CLR_DONE: egui::Color32 = egui::Color32::DARK_GREEN;
+    const CLR_INPROGRESS: egui::Color32 = egui::Color32::from_rgb_additive(0x89, 0x38, 0x01);
+    const CLR_NOTSTARTED: egui::Color32 = egui::Color32::DARK_GRAY;
 }
 
 impl Default for TaskManager {
@@ -92,7 +95,7 @@ impl TaskManager {
                     for task in conv.drain(..) {
                         tm.tasks.insert(task.get_uuid(), task);
                     }
-                    println!("got task list of size {}", tm.tasks.len());
+                    println!("Got task list of size {}", tm.tasks.len());
                     // TODO: Verify task link integrity
                 }
             }
@@ -106,65 +109,91 @@ impl TaskManager {
         self.tasks.insert(task.get_uuid(), task);
     }
 
-    fn new_task_dialog(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn creation_dialog(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut defer_add = false;
         if let Some(ref mut new_task) = self.tmp_task {
             egui::Window::new("Creating New Task")
                 .collapsible(false)
-                .resizable(false)
+                .title_bar(true)
+                .resizable(true)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         let name_label = ui.label("Task Name");
-                        ui.text_edit_singleline(&mut new_task.name)
-                            .labelled_by(name_label.id);
+                        ui.add_sized(
+                            [ui.available_width(), 0.0],
+                            egui::TextEdit::singleline(&mut new_task.name),
+                        )
+                        .labelled_by(name_label.id);
                     });
 
                     ui.horizontal(|ui| {
                         let desc_label = ui.label("Description");
-                        ui.text_edit_multiline(&mut new_task.description)
-                            .labelled_by(desc_label.id);
+                        ui.add_sized(
+                            [ui.available_width(), 0.0],
+                            egui::TextEdit::multiline(&mut new_task.description),
+                        )
+                        .labelled_by(desc_label.id);
                     });
 
-                    ui.horizontal(|ui| {
-                        if ui.button("Add").clicked() {
+                    ui.separator();
+                    egui::ScrollArea::new([false, true]).show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            let heading = egui::RichText::new("Select subtasks")
+                                .text_style(egui::TextStyle::Name("Heading3".into()));
+                            ui.label(heading);
+                            for existing_task in self.tasks.values() {
+                                let mut selected = new_task.has_subtask(existing_task.get_uuid());
+                                let before = selected;
+
+                                if ui
+                                    .add_sized([ui.available_width(), 0.0], egui::SelectableLabel::new(
+                                        selected,
+                                        &existing_task.name,
+                                    ))
+                                    .clicked()
+                                {
+                                    selected = !selected;
+                                };
+                                if before != selected {
+                                    if selected {
+                                        new_task.add_subtask(
+                                            existing_task.get_uuid(),
+                                            existing_task.name.clone(),
+                                        );
+                                    } else {
+                                        new_task.remove_subtask(existing_task.get_uuid());
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    ui.separator();
+                    ui.columns(2, |cols| {
+                        if cols[0]
+                            .add(egui::Button::new("Add").fill(TaskManager::CLR_CONFIRM))
+                            .clicked()
+                        {
                             defer_add = true;
                             self.show_new_dialog = false;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if cols[1]
+                            .add(egui::Button::new("Cancel").fill(TaskManager::CLR_ABORT))
+                            .clicked()
+                        {
                             self.show_new_dialog = false;
-                        }
-                    });
-
-                    ui.vertical(|ui| {
-                        for existing_task in self.tasks.values() {
-                            let mut selected = new_task.has_subtask(existing_task.get_uuid());
-                            let before = selected;
-                            if ui.selectable_label(selected, &existing_task.name).clicked() {
-                                selected = !selected;
-                            };
-                            if before != selected {
-                                if selected {
-                                    new_task.add_subtask(
-                                        existing_task.get_uuid(),
-                                        existing_task.name.clone(),
-                                    );
-                                } else {
-                                    new_task.remove_subtask(existing_task.get_uuid());
-                                }
-                            }
                         }
                     });
                 });
         }
+
         if defer_add {
             let task = self.tmp_task.take().unwrap();
             self.add_task(task);
-
-            println!("{:?}", self.tasks);
         }
     }
 
-    fn edit_panel(&mut self, ctx: &egui::Context) {
+    fn edit_pane(&mut self, ctx: &egui::Context) {
         let mut defer_delete = false;
 
         if let Some(uuid) = &self.edit {
@@ -255,9 +284,9 @@ impl TaskManager {
                             for (id, name) in subtasks.iter() {
                                 let label =
                                     egui::RichText::new(name).color(match stati.get(id).unwrap() {
-                                        TaskStatus::NotYet => TaskManager::COLOR_NOTSTARTED,
-                                        TaskStatus::Started => TaskManager::COLOR_INPROGRESS,
-                                        TaskStatus::Finished => TaskManager::COLOR_DONE,
+                                        TaskStatus::NotYet => TaskManager::CLR_NOTSTARTED,
+                                        TaskStatus::Started => TaskManager::CLR_INPROGRESS,
+                                        TaskStatus::Finished => TaskManager::CLR_DONE,
                                     });
                                 ui.label(label);
                             }
@@ -283,7 +312,7 @@ impl eframe::App for TaskManager {
         if self.show_new_dialog {
             match self.tmp_task {
                 Some(_) => {
-                    self.new_task_dialog(ctx, frame);
+                    self.creation_dialog(ctx, frame);
                 }
                 None => self.tmp_task = Some(Task::default()),
             }
@@ -382,7 +411,7 @@ impl eframe::App for TaskManager {
             }
         });
 
-        self.edit_panel(ctx);
+        self.edit_pane(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
