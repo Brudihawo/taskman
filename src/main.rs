@@ -257,21 +257,13 @@ impl TaskManager {
                     {
                         task.finish();
                     }
-
-                    if ui
-                        .add(
-                            egui::Button::new("edit")
-                                .fill(Color32::from_rgb_additive(0x89, 0x38, 0x01)),
-                        )
-                        .clicked()
-                    {
-                        self.edit = Some(task.get_uuid());
-                    }
                 });
 
                 let sep = egui::Separator::default();
                 ui.add(sep);
-                task.display(ui);
+                if task.display(ui) {
+                    self.edit = Some(task.get_uuid())
+                };
             });
             ui.separator();
         }

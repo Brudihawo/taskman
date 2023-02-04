@@ -77,44 +77,60 @@ impl Task {
         }
     }
 
-    pub fn display(&self, ui: &mut egui::Ui) {
+    pub fn display(&self, ui: &mut egui::Ui) -> bool {
+        let mut clicked = false;
         ui.vertical(|ui| {
-            ui.label(
-                if let Some(dur) = self.get_duration() {
-                    egui::RichText::new(format!(
-                        "{} | {} -> {} (Took {:02}:{:02}:{:02})",
-                        &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
-                        &DateTime::<Local>::from(self.started.unwrap()).format(Task::DATEFMT),
-                        &DateTime::<Local>::from(self.finished.unwrap()).format(Task::DATEFMT),
-                        dur.num_hours(),
-                        dur.num_minutes() - dur.num_hours() * 60,
-                        dur.num_seconds() - dur.num_minutes() * 60 - dur.num_hours() * 3600
-                    ))
-                    .color(Color32::DARK_GREEN)
-                } else if let Some(begin) = self.started {
-                    egui::RichText::new(format!(
-                        "{} | {} -> ...",
-                        &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
-                        &DateTime::<Local>::from(begin).format(Task::DATEFMT),
-                    ))
-                    .color(Color32::from_rgb_additive(0x89, 0x38, 0x01))
-                } else {
-                    egui::RichText::new(format!(
-                        "{}",
-                        &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
-                    ))
-                }
-                .text_style(egui::TextStyle::Name("Smaller".into())),
-            );
+            clicked = clicked
+                | ui.add(
+                    egui::Label::new(
+                        if let Some(dur) = self.get_duration() {
+                            egui::RichText::new(format!(
+                                "{} | {} -> {} (Took {:02}:{:02}:{:02})",
+                                &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
+                                &DateTime::<Local>::from(self.started.unwrap())
+                                    .format(Task::DATEFMT),
+                                &DateTime::<Local>::from(self.finished.unwrap())
+                                    .format(Task::DATEFMT),
+                                dur.num_hours(),
+                                dur.num_minutes() - dur.num_hours() * 60,
+                                dur.num_seconds() - dur.num_minutes() * 60 - dur.num_hours() * 3600
+                            ))
+                            .color(Color32::DARK_GREEN)
+                        } else if let Some(begin) = self.started {
+                            egui::RichText::new(format!(
+                                "{} | {} -> ...",
+                                &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
+                                &DateTime::<Local>::from(begin).format(Task::DATEFMT),
+                            ))
+                            .color(Color32::from_rgb_additive(0x89, 0x38, 0x01))
+                        } else {
+                            egui::RichText::new(format!(
+                                "{}",
+                                &DateTime::<Local>::from(self.creation_time).format(Task::DATEFMT),
+                            ))
+                        }
+                        .text_style(egui::TextStyle::Name("Smaller".into())),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .clicked();
 
-            ui.label(
-                egui::RichText::new(format!("{}", &self.name))
-                    .text_style(egui::TextStyle::Name("Heading2".into()))
-                    .strong(),
-            );
+            clicked = clicked
+                | ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("{}", &self.name))
+                            .text_style(egui::TextStyle::Name("Heading2".into()))
+                            .strong(),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .double_clicked();
 
-            ui.label(&self.description);
+            clicked = clicked
+                | ui.add(egui::Label::new(&self.description).sense(egui::Sense::click()))
+                    .double_clicked();
         });
+        clicked
     }
 }
 

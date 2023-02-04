@@ -6,12 +6,13 @@ A simple time tracking TODO manager written in rust using [egui](https://github.
 ## Features
 - [x] Tasks
 - [x] Integrated Pomodoro Timer
-- [ ] Adding Subtask
+- [x] Edit Tasks
+- [ ] reset task times in edit window?
+- [x] Delete Tasks
+- [x] Handle Time Display correctly
+- [x] Remove edit button; make edit window open on double click
+- [ ] Adding Subtasks
 - [ ] Task Groups and Tags
 - [ ] Graphing time taken for tasks
 - [ ] Friendly output as json for custom visualizations
-- [x] Edit Tasks
-- [x] Delete Tasks
-- [ ] Remove edit button; make edit window open on double click
 - [ ] Better Styling
-- [x] Handle Time Display correctly
