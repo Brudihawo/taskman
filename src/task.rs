@@ -17,7 +17,7 @@ pub struct Task {
     pub description: String,
     started: Option<DateTime<Utc>>,
     finished: Option<DateTime<Utc>>,
-    pub subtasks: Option<Vec<Uuid>>,
+    pub subtasks: Option<Vec<(Uuid, String)>>,
 }
 
 pub enum TaskStatus {
@@ -127,10 +127,52 @@ impl Task {
                 .double_clicked();
 
             clicked = clicked
-                | ui.add(egui::Label::new(&self.description).sense(egui::Sense::click()))
-                    .double_clicked();
+                | ui.add(
+                    egui::Label::new(egui::RichText::new(&self.description).strong())
+                        .sense(egui::Sense::click()),
+                )
+                .double_clicked();
         });
         clicked
+    }
+
+    pub(crate) fn has_subtask(&self, id: Uuid) -> bool {
+        match &self.subtasks {
+            Some(subtasks) => subtasks.iter().find(|(tid, _)| &id == tid).is_some(),
+            None => false,
+        }
+    }
+
+    //TODO: proper error handling for subtask adding and removal
+    pub fn add_subtask(&mut self, id: Uuid, name: String) {
+        if self.has_subtask(id) {
+            unreachable!("This function should not have been called like this");
+        }
+
+        if let Some(subtasks) = &mut self.subtasks {
+            subtasks.push((id, name));
+        } else {
+            self.subtasks = Some(vec![(id, name)])
+        }
+    }
+
+    pub fn remove_subtask(&mut self, id: Uuid) {
+        if !self.has_subtask(id) {
+            unreachable!("Can only remove existing subtask");
+        }
+
+        if let Some(subtasks) = &mut self.subtasks {
+            let pos = subtasks
+                .iter()
+                .enumerate()
+                .find(|(_, (x, _))| x == &id)
+                .map(|(x, _)| x);
+            subtasks.remove(pos.unwrap());
+        }
+    }
+
+    pub fn get_subtasks(&self) -> Option<&Vec<(Uuid, String)>> {
+        self.subtasks.as_ref()
     }
 }
 
@@ -162,10 +204,11 @@ impl Serialize for Task {
         s.serialize_field("finished", &self.finished)?;
         s.serialize_field(
             "subtasks",
-            &self
-                .subtasks
-                .as_ref()
-                .map(|ids| ids.iter().map(|u| u.as_u128()).collect::<Vec<u128>>()),
+            &self.subtasks.as_ref().map(|ids| {
+                ids.iter()
+                    .map(|(u, n)| (u.as_u128(), n.clone()))
+                    .collect::<Vec<(u128, String)>>()
+            }),
         )?;
         s.end()
     }
@@ -218,13 +261,16 @@ impl<'de> Deserialize<'de> for Task {
                 let finished: Option<DateTime<Utc>> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(5, &self))?;
-                let u_subtasks: Option<Vec<u128>> = seq
+                let u_subtasks: Option<Vec<(u128, String)>> = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(6, &self))?;
 
                 let id = Uuid::from_u128(u_id);
-                let subtasks = u_subtasks
-                    .map(|u| u.iter().map(|&x| Uuid::from_u128(x)).collect::<Vec<Uuid>>());
+                let subtasks = u_subtasks.map(|mut u| {
+                    u.drain(..)
+                        .map(|(id, name)| (Uuid::from_u128(id), name))
+                        .collect::<Vec<(Uuid, String)>>()
+                });
 
                 Ok(Self::Value {
                     id,
@@ -290,7 +336,7 @@ impl<'de> Deserialize<'de> for Task {
                             if subtasks.is_some() {
                                 return Err(de::Error::duplicate_field("subtasks"));
                             }
-                            subtasks = Some(map.next_value::<Option<Vec<u128>>>()?);
+                            subtasks = Some(map.next_value::<Option<Vec<(u128, String)>>>()?);
                         }
                     }
                 }
@@ -308,7 +354,11 @@ impl<'de> Deserialize<'de> for Task {
                     finished: finished.ok_or_else(|| de::Error::missing_field("finished"))?,
                     subtasks: subtasks
                         .map(|o| {
-                            o.map(|x| x.iter().map(|u| Uuid::from_u128(*u)).collect::<Vec<Uuid>>())
+                            o.map(|mut x| {
+                                x.drain(..)
+                                    .map(|(u, n)| (Uuid::from_u128(u), n.clone()))
+                                    .collect::<Vec<(Uuid, String)>>()
+                            })
                         })
                         .ok_or_else(|| de::Error::missing_field("subtasks"))?,
                 })

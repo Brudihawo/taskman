@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::pomodoro::{Pomodoro, PomodoroStatus};
-use crate::task::Task;
+use crate::task::{Task, TaskStatus};
 
 use egui::Color32;
 
@@ -30,6 +30,10 @@ impl TaskManager {
     pub const TASK_LIST: &str = "task_list";
     const CLR_PUSHED: egui::Color32 = egui::Color32::DARK_GREEN;
     const CLR_NORMAL: egui::Color32 = egui::Color32::DARK_GRAY;
+
+    const COLOR_DONE: egui::Color32 = egui::Color32::DARK_GREEN;
+    const COLOR_INPROGRESS: egui::Color32 = egui::Color32::from_rgb_additive(0x89, 0x38, 0x01);
+    const COLOR_NOTSTARTED: egui::Color32 = egui::Color32::DARK_GRAY;
 }
 
 impl Default for TaskManager {
@@ -104,20 +108,20 @@ impl TaskManager {
 
     fn new_task_dialog(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut defer_add = false;
-        if let Some(ref mut task) = self.tmp_task {
+        if let Some(ref mut new_task) = self.tmp_task {
             egui::Window::new("Creating New Task")
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         let name_label = ui.label("Task Name");
-                        ui.text_edit_singleline(&mut task.name)
+                        ui.text_edit_singleline(&mut new_task.name)
                             .labelled_by(name_label.id);
                     });
 
                     ui.horizontal(|ui| {
                         let desc_label = ui.label("Description");
-                        ui.text_edit_multiline(&mut task.description)
+                        ui.text_edit_multiline(&mut new_task.description)
                             .labelled_by(desc_label.id);
                     });
 
@@ -128,6 +132,26 @@ impl TaskManager {
                         }
                         if ui.button("Cancel").clicked() {
                             self.show_new_dialog = false;
+                        }
+                    });
+
+                    ui.vertical(|ui| {
+                        for existing_task in self.tasks.values() {
+                            let mut selected = new_task.has_subtask(existing_task.get_uuid());
+                            let before = selected;
+                            if ui.selectable_label(selected, &existing_task.name).clicked() {
+                                selected = !selected;
+                            };
+                            if before != selected {
+                                if selected {
+                                    new_task.add_subtask(
+                                        existing_task.get_uuid(),
+                                        existing_task.name.clone(),
+                                    );
+                                } else {
+                                    new_task.remove_subtask(existing_task.get_uuid());
+                                }
+                            }
                         }
                     });
                 });
@@ -186,6 +210,12 @@ impl TaskManager {
     }
 
     fn task_list(&mut self, ui: &mut egui::Ui) {
+        let mut stati: HashMap<Uuid, TaskStatus> = self
+            .tasks
+            .values()
+            .map(|v| (v.get_uuid(), v.status()))
+            .collect();
+
         let mut tasks: Vec<&mut Task> = self.tasks.values_mut().collect();
         tasks.sort_by_key(|x| x.get_creation_time());
         for task in tasks.iter_mut().rev() {
@@ -216,9 +246,24 @@ impl TaskManager {
 
                 let sep = egui::Separator::default();
                 ui.add(sep);
-                if task.display(ui) {
-                    self.edit = Some(task.get_uuid())
-                };
+                ui.vertical(|ui| {
+                    if task.display(ui) {
+                        self.edit = Some(task.get_uuid())
+                    };
+                    ui.vertical(|ui| {
+                        if let Some(subtasks) = task.get_subtasks() {
+                            for (id, name) in subtasks.iter() {
+                                let label =
+                                    egui::RichText::new(name).color(match stati.get(id).unwrap() {
+                                        TaskStatus::NotYet => TaskManager::COLOR_NOTSTARTED,
+                                        TaskStatus::Started => TaskManager::COLOR_INPROGRESS,
+                                        TaskStatus::Finished => TaskManager::COLOR_DONE,
+                                    });
+                                ui.label(label);
+                            }
+                        }
+                    });
+                });
             });
             ui.separator();
         }
