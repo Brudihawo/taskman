@@ -292,6 +292,11 @@ impl TaskManager {
         }
         if defer_delete {
             let to_del = self.edit.take().unwrap();
+            for task in self.tasks.values_mut() {
+                if task.has_subtask(to_del) {
+                    task.remove_subtask(to_del);
+                }
+            }
             self.tasks.remove(&to_del);
         }
     }
