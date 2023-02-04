@@ -18,6 +18,55 @@ struct TaskManager {
     show_new_dialog: bool,
     tmp_task: Option<Task>,
     edit: Option<Uuid>,
+    pomodoro: Option<Pomodoro>,
+    notified: NotifyStatus,
+    pomo_work: u32,
+    pomo_break: u32,
+}
+
+struct Pomodoro {
+    start: DateTime<Utc>,
+    work_time: chrono::Duration,
+    break_time: chrono::Duration,
+}
+
+enum NotifyStatus {
+    SentBreak,
+    SentWork,
+    Nothing,
+}
+
+enum PomodoroStatus {
+    Work(chrono::Duration),
+    Break(chrono::Duration),
+    Done,
+}
+
+impl Pomodoro {
+    fn new(work_time: chrono::Duration, break_time: chrono::Duration) -> Self {
+        Self {
+            start: Utc::now(),
+            work_time,
+            break_time,
+        }
+    }
+
+    fn status(&self) -> PomodoroStatus {
+        let elapsed = Utc::now() - self.start;
+        if elapsed < self.work_time {
+            PomodoroStatus::Work(elapsed)
+        } else if elapsed < self.work_time + self.break_time {
+            PomodoroStatus::Break(elapsed - self.work_time)
+        } else {
+            PomodoroStatus::Done
+        }
+    }
+}
+
+impl Default for Pomodoro {
+    fn default() -> Self {
+        Self::new(chrono::Duration::minutes(25), chrono::Duration::minutes(5))
+    }
 }
 
 impl TaskManager {
@@ -34,6 +83,10 @@ impl Default for TaskManager {
             show_new_dialog: false,
             tmp_task: None,
             edit: None,
+            pomodoro: None,
+            pomo_work: 25,
+            pomo_break: 5,
+            notified: NotifyStatus::Nothing,
         }
     }
 }
@@ -166,38 +219,61 @@ impl TaskManager {
                 });
         }
     }
+
+    fn task_list(&mut self, ui: &mut egui::Ui) {
+        let mut tasks: Vec<&mut Task> = self.tasks.values_mut().collect();
+        tasks.sort_by_key(|x| x.get_creation_time());
+        for task in tasks.iter_mut().rev() {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    if ui
+                        .add(egui::Button::new("start").fill(if task.is_started() {
+                            TaskManager::CLR_PUSHED
+                        } else {
+                            TaskManager::CLR_NORMAL
+                        }))
+                        .clicked()
+                    {
+                        task.start();
+                    }
+
+                    if ui
+                        .add(egui::Button::new("done").fill(if task.is_finished() {
+                            TaskManager::CLR_PUSHED
+                        } else {
+                            TaskManager::CLR_NORMAL
+                        }))
+                        .clicked()
+                    {
+                        task.finish();
+                    }
+
+                    if ui
+                        .add(
+                            egui::Button::new("edit")
+                                .fill(Color32::from_rgb_additive(0x89, 0x38, 0x01)),
+                        )
+                        .clicked()
+                    {
+                        self.edit = Some(task.get_uuid());
+                    }
+                });
+
+                let sep = egui::Separator::default();
+                ui.add(sep);
+                task.display(ui);
+            });
+            ui.separator();
+        }
+    }
 }
 
-fn task_list_entry(task: &mut Task, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            if ui
-                .add(egui::Button::new("start").fill(if task.is_started() {
-                    TaskManager::CLR_PUSHED
-                } else {
-                    TaskManager::CLR_NORMAL
-                }))
-                .clicked()
-            {
-                task.start();
-            }
-
-            if ui
-                .add(egui::Button::new("done").fill(if task.is_finished() {
-                    TaskManager::CLR_PUSHED
-                } else {
-                    TaskManager::CLR_NORMAL
-                }))
-                .clicked()
-            {
-                task.finish();
-            }
-        });
-
-        let sep = egui::Separator::default();
-        ui.add(sep);
-        task.display(ui);
-    });
+fn display_duration_min_s(d: chrono::Duration) -> String {
+    format!(
+        "{}:{:02}",
+        d.num_minutes(),
+        d.num_seconds() - d.num_minutes() * 60
+    )
 }
 
 impl eframe::App for TaskManager {
@@ -212,8 +288,95 @@ impl eframe::App for TaskManager {
         }
 
         egui::SidePanel::left("Left Side").show(ctx, |ui| {
+            ui.heading("Tasks");
             if ui.button("New Task").clicked() {
                 self.show_new_dialog = true;
+            }
+            ui.separator();
+            ui.heading("Pomodoro");
+            if ui.button("Start / Stop").clicked() {
+                match self.pomodoro {
+                    Some(_) => self.pomodoro = None,
+                    None => {
+                        self.pomodoro = Some(Pomodoro::new(
+                            chrono::Duration::minutes(self.pomo_work.into()),
+                            chrono::Duration::minutes(self.pomo_break.into()),
+                        ))
+                    }
+                }
+            }
+
+            if let Some(pomo) = &self.pomodoro {
+                // Request Repaint so that progress bar updates regularly
+                ctx.request_repaint();
+
+                // Handle Notification
+                match pomo.status() {
+                    PomodoroStatus::Work(_) => match self.notified {
+                        NotifyStatus::SentBreak | NotifyStatus::Nothing => {
+                            notify_rust::Notification::new()
+                                .summary("Start Working")
+                                .body(&format!(
+                                    "Working interval time: {}",
+                                    display_duration_min_s(pomo.work_time)
+                                ))
+                                .show()
+                                .unwrap();
+                            self.notified = NotifyStatus::SentWork;
+                        }
+                        _ => (),
+                    },
+                    PomodoroStatus::Break(_) => match self.notified {
+                        NotifyStatus::SentWork | NotifyStatus::Nothing => {
+                            notify_rust::Notification::new()
+                                .summary("Take a Break")
+                                .body(&format!(
+                                    "Break interval time: {}",
+                                    display_duration_min_s(pomo.break_time)
+                                ))
+                                .show()
+                                .unwrap();
+                            self.notified = NotifyStatus::SentBreak;
+                        }
+                        _ => (),
+                    },
+                    PomodoroStatus::Done => match self.notified {
+                        NotifyStatus::SentBreak | NotifyStatus::Nothing => {
+                            notify_rust::Notification::new()
+                                .summary("Pomodoro is Done")
+                                .show()
+                                .unwrap();
+                            self.notified = NotifyStatus::Nothing;
+                        }
+                        _ => (),
+                    },
+                }
+
+                let pbar = match pomo.status() {
+                    PomodoroStatus::Work(work_time_elapsed) => egui::ProgressBar::new(
+                        work_time_elapsed.num_seconds() as f32
+                            / pomo.work_time.num_seconds() as f32,
+                    )
+                    .text(format!(
+                        "Work Time: {}",
+                        display_duration_min_s(work_time_elapsed)
+                    )),
+                    PomodoroStatus::Break(break_time_elapsed) => egui::ProgressBar::new(
+                        break_time_elapsed.num_seconds() as f32
+                            / pomo.break_time.num_seconds() as f32,
+                    )
+                    .text(format!(
+                        "Break Time: {}",
+                        display_duration_min_s(break_time_elapsed)
+                    )),
+                    PomodoroStatus::Done => egui::ProgressBar::new(1.0).text("Done"),
+                };
+                ui.add(pbar);
+            } else {
+                ui.add(egui::Slider::new(&mut self.pomo_work, 1..=60))
+                    .labelled_by(ui.label("Work Interval").id);
+                ui.add(egui::Slider::new(&mut self.pomo_break, 1..=60))
+                    .labelled_by(ui.label("Break Interval").id);
             }
         });
 
@@ -222,16 +385,7 @@ impl eframe::App for TaskManager {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("All Tasks");
-                let mut tasks: Vec<&mut Task> = self.tasks.values_mut().collect();
-                tasks.sort_by_key(|x| x.get_creation_time());
-                for task in tasks.iter_mut().rev() {
-                    task_list_entry(task, ui);
-                    if ui.button("edit").clicked() {
-                        self.edit = Some(task.get_uuid());
-                    }
-                    ui.separator();
-                    ui.end_row();
-                }
+                self.task_list(ui);
             });
         });
     }
