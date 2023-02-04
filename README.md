@@ -5,7 +5,7 @@ A simple time tracking TODO manager written in rust using [egui](https://github.
 
 ## Features
 - [x] Tasks
-- [ ] Integrated Pomodoro Timer
+- [x] Integrated Pomodoro Timer
 - [ ] Adding Subtask
 - [ ] Task Groups and Tags
 - [ ] Graphing time taken for tasks
