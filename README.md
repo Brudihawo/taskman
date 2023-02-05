@@ -27,3 +27,6 @@ A simple time tracking TODO manager written in rust using [egui](https://github.
 - [ ] Verifying of loaded data
 - [ ] Better Styling
 - [ ] Archiving Tasks - How do I want to handle this
+- [ ] Keyboard Shortcuts for new task etc
+- [ ] Import lists from markdown or similar file formats for easy integration into notetaking
+- [ ] CLI for imports, ability to set resource file to manage different task collections
