@@ -410,7 +410,7 @@ impl TaskManager {
                     _ => (),
                 },
                 PomodoroStatus::Done => match self.notified {
-                    NotifyStatus::SentBreak | NotifyStatus::Nothing => {
+                    NotifyStatus::SentBreak | NotifyStatus::SentWork => {
                         notify_rust::Notification::new()
                             .summary("Pomodoro is Done")
                             .show()
