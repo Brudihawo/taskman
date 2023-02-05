@@ -21,7 +21,7 @@ enum NotifyStatus {
 pub struct TaskManager {
     tasks: HashMap<Uuid, Task>,
 
-    show_new_dialog: bool,
+    show_creation_dialog: bool,
     tmp_task: Option<Task>,
 
     err_msg: Option<String>,
@@ -53,7 +53,7 @@ impl Default for TaskManager {
     fn default() -> Self {
         Self {
             tasks: HashMap::new(),
-            show_new_dialog: false,
+            show_creation_dialog: false,
             tmp_task: None,
             edit: None,
             pomodoro: None,
@@ -129,6 +129,25 @@ impl TaskManager {
                 .title_bar(true)
                 .resizable(true)
                 .show(ctx, |ui| {
+                    for event in ui.input().events.clone() {
+                        match event {
+                            egui::Event::Key {
+                                key,
+                                pressed,
+                                modifiers,
+                            } => {
+                                if key == egui::Key::W && pressed && modifiers.ctrl {
+                                    self.show_creation_dialog = false;
+                                }
+                                if key == egui::Key::Enter && pressed && modifiers.ctrl {
+                                    defer_add = true;
+                                    self.show_creation_dialog = false;
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+
                     ui.horizontal(|ui| {
                         let name_label = ui.label("Task Name");
                         ui.add_sized(
@@ -187,13 +206,13 @@ impl TaskManager {
                             .clicked()
                         {
                             defer_add = true;
-                            self.show_new_dialog = false;
+                            self.show_creation_dialog = false;
                         }
                         if cols[1]
                             .add(egui::Button::new("Cancel").fill(TaskManager::CLR_ABORT))
                             .clicked()
                         {
-                            self.show_new_dialog = false;
+                            self.show_creation_dialog = false;
                         }
                     });
                 });
@@ -530,7 +549,22 @@ fn display_duration_min_s(d: chrono::Duration) -> String {
 
 impl eframe::App for TaskManager {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.show_new_dialog {
+        for event in ctx.input().events.clone() {
+            match event {
+                egui::Event::Key {
+                    key,
+                    pressed,
+                    modifiers,
+                } => {
+                    if key == egui::Key::N && pressed && modifiers.ctrl {
+                        self.show_creation_dialog = true;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        if self.show_creation_dialog {
             match self.tmp_task {
                 Some(_) => {
                     self.creation_dialog(ctx, frame);
@@ -543,7 +577,7 @@ impl eframe::App for TaskManager {
             ui.heading("Tasks");
             ui.columns(2, |cols| {
                 if cols[0].button("New Task").clicked() {
-                    self.show_new_dialog = true;
+                    self.show_creation_dialog = true;
                 }
                 if cols[1].button("Export").clicked() {
                     self.export();
